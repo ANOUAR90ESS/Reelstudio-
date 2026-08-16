@@ -22,7 +22,7 @@ import kotlinx.coroutines.launch
         DramaEntity::class,
         EpisodeEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -89,6 +89,23 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v2 -> v3 attaches media to the catalog: poster/trailer on a film, video, thumbnail and
+         * voiceover on an episode. Additive again — drafts already authored keep their text and
+         * simply start out with no media.
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                listOf(
+                    "ALTER TABLE `admin_dramas` ADD COLUMN `posterUrl` TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE `admin_dramas` ADD COLUMN `trailerUrl` TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE `admin_episodes` ADD COLUMN `videoUrl` TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE `admin_episodes` ADD COLUMN `thumbnailUrl` TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE `admin_episodes` ADD COLUMN `voiceoverUrl` TEXT NOT NULL DEFAULT ''"
+                ).forEach(db::execSQL)
+            }
+        }
+
         fun getDatabase(context: Context, scope: CoroutineScope = CoroutineScope(Dispatchers.IO)): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -127,7 +144,7 @@ abstract class AppDatabase : RoomDatabase() {
                         }
                     }
                 })
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
                 INSTANCE = instance
                 instance

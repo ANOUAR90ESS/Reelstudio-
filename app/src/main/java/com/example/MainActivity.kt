@@ -57,6 +57,10 @@ import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.theme.ReelBackgroundDark
 import com.example.ui.theme.ReelRedPrimary
 import com.example.data.admin.AdminStats
+import com.example.data.ai.StoryGenerator
+import com.example.data.firebase.MediaUploader
+import com.example.data.model.DramaGenre
+import com.example.ui.screens.admin.AiStoryGeneratorSheet
 import com.example.ui.screens.admin.AdminDashboardScreen
 import com.example.ui.screens.admin.AdminDramaEditorScreen
 import com.example.ui.screens.admin.AdminEpisodeEditorScreen
@@ -124,6 +128,12 @@ fun ReelShortApp(viewModel: ReelShortViewModel) {
     val showAdminAccessDialog by viewModel.showAdminAccessDialog.collectAsStateWithLifecycle()
     val adminAccessError by viewModel.adminAccessError.collectAsStateWithLifecycle()
     val isSavingAdminContent by viewModel.isSavingAdminContent.collectAsStateWithLifecycle()
+    val showStoryGenerator by viewModel.showStoryGenerator.collectAsStateWithLifecycle()
+    val isGeneratingStory by viewModel.isGeneratingStory.collectAsStateWithLifecycle()
+    val generatedStory by viewModel.generatedStory.collectAsStateWithLifecycle()
+    val aiErrorMessage by viewModel.aiErrorMessage.collectAsStateWithLifecycle()
+    val pendingOutlines by viewModel.pendingEpisodeOutlines.collectAsStateWithLifecycle()
+    val uploadStates by viewModel.uploadStates.collectAsStateWithLifecycle()
 
     // Nav state for Drama Detail
     var detailDrama by remember { mutableStateOf<Drama?>(null) }
@@ -148,7 +158,22 @@ fun ReelShortApp(viewModel: ReelShortViewModel) {
             adminName = userProfile?.displayName ?: currentUser?.displayName ?: "Admin",
             adminEmail = userProfile?.email ?: currentUser?.email.orEmpty(),
             isSaving = isSavingAdminContent,
+            uploadStates = uploadStates,
+            isGeneratingStory = isGeneratingStory,
+            pendingOutlines = pendingOutlines,
             viewModel = viewModel
+        )
+
+        // The AI writer floats above whichever console screen is open.
+        AiStoryGeneratorSheet(
+            isOpen = showStoryGenerator,
+            genre = (adminRoute as? AdminRoute.FilmEditor)?.form?.genre ?: DramaGenre.BILLIONAIRE,
+            isGenerating = isGeneratingStory,
+            result = generatedStory,
+            errorMessage = aiErrorMessage,
+            onGenerate = { idea, genre, count -> viewModel.generateStory(idea, genre, count) },
+            onApply = { viewModel.applyGeneratedStory(it) },
+            onDismiss = { viewModel.closeStoryGenerator() }
         )
         return
     }
@@ -386,6 +411,9 @@ private fun AdminConsole(
     adminName: String,
     adminEmail: String,
     isSaving: Boolean,
+    uploadStates: Map<MediaUploader.MediaKind, MediaUploader.UploadState>,
+    isGeneratingStory: Boolean,
+    pendingOutlines: List<StoryGenerator.GeneratedEpisode>,
     viewModel: ReelShortViewModel
 ) {
     BackHandler {
@@ -418,6 +446,11 @@ private fun AdminConsole(
             AdminDramaEditorScreen(
                 initialForm = route.form,
                 isSaving = isSaving,
+                uploadStates = uploadStates,
+                onUploadMedia = { uri, kind, name, onUploaded ->
+                    viewModel.uploadMedia(uri, route.form.id, kind, name, onUploaded)
+                },
+                onOpenAiWriter = { viewModel.openStoryGenerator() },
                 onSave = { viewModel.saveFilm(it) },
                 onCancel = { viewModel.openAdminDashboard() }
             )
@@ -439,6 +472,23 @@ private fun AdminConsole(
                 AdminEpisodeEditorScreen(
                     drama = drama,
                     isSaving = isSaving,
+                    uploadStates = uploadStates,
+                    onUploadMedia = { uri, kind, name, onUploaded ->
+                        viewModel.uploadMedia(uri, drama.id, kind, name, onUploaded)
+                    },
+                    isGeneratingScript = isGeneratingStory,
+                    onGenerateScript = { form, onReady ->
+                        viewModel.generateEpisodeScript(
+                            form = form,
+                            seriesTitle = drama.title,
+                            synopsis = drama.description,
+                            cast = drama.cast,
+                            onScriptReady = onReady
+                        )
+                    },
+                    pendingOutlines = pendingOutlines,
+                    onCreateFromOutlines = { viewModel.createEpisodesFromOutlines(drama.id) },
+                    onDismissOutlines = { viewModel.clearEpisodeOutlines() },
                     onSaveEpisode = { viewModel.saveEpisode(it) },
                     onDeleteEpisode = { viewModel.deleteEpisode(drama.id, it.id) },
                     onBack = { viewModel.openAdminDashboard() }

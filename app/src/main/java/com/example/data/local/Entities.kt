@@ -83,6 +83,8 @@ data class DramaEntity(
     val cast: List<String> = emptyList(),
     val director: String = "",
     val tags: List<String> = emptyList(),
+    val posterUrl: String = "",
+    val trailerUrl: String = "",
     /** Drafts are invisible to viewers; publishing pushes the film into the public catalog. */
     val isPublished: Boolean = false,
     val createdBy: String = "",
@@ -105,6 +107,9 @@ data class EpisodeEntity(
     val isFree: Boolean = false,
     val coinCost: Int = 20,
     val previewSubtitle: String = "",
+    val videoUrl: String = "",
+    val thumbnailUrl: String = "",
+    val voiceoverUrl: String = "",
     /** Encoded script lines, see [com.example.data.admin.AdminMappers]. */
     val scriptLines: List<String> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),

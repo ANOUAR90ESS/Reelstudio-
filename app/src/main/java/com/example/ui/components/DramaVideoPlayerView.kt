@@ -162,14 +162,27 @@ fun DramaVideoPlayerView(
                 )
             }
     ) {
-        // --- 1. Realistic Cinematic Visual Canvas ---
-        CinematicSceneCanvas(
-            gradientStart = drama.coverGradientStart,
-            gradientEnd = drama.coverGradientEnd,
-            isPlaying = isPlaying,
-            panOffset = panOffset,
-            episodeNumber = currentEpisode.episodeNumber
-        )
+        // --- 1. The picture ---
+        // A real uploaded or generated video when the episode has one; otherwise the stylised
+        // scene, so an episode stays previewable while its video is still being produced.
+        if (currentEpisode.hasVideo && isUnlocked) {
+            EpisodeVideoSurface(
+                videoUrl = currentEpisode.videoUrl,
+                isPlaying = isPlaying,
+                progressSeconds = progressSeconds,
+                speed = playbackSpeed,
+                modifier = Modifier.fillMaxSize(),
+                onPlaybackEnded = onNextEpisode
+            )
+        } else {
+            CinematicSceneCanvas(
+                gradientStart = drama.coverGradientStart,
+                gradientEnd = drama.coverGradientEnd,
+                isPlaying = isPlaying,
+                panOffset = panOffset,
+                episodeNumber = currentEpisode.episodeNumber
+            )
+        }
 
         // Vignette gradients (top and bottom for UI readability)
         Box(

@@ -49,6 +49,9 @@ fun EpisodeEntity.toEpisode(): Episode = Episode(
     isFree = isFree,
     coinCost = coinCost,
     previewSubtitle = previewSubtitle,
+    videoUrl = videoUrl,
+    thumbnailUrl = thumbnailUrl,
+    voiceoverUrl = voiceoverUrl,
     scriptLines = scriptLines.mapNotNull { AdminMappers.decodeScriptLine(it) }
 )
 
@@ -61,6 +64,9 @@ fun Episode.toEntity(createdAt: Long = System.currentTimeMillis()): EpisodeEntit
     isFree = isFree,
     coinCost = coinCost,
     previewSubtitle = previewSubtitle,
+    videoUrl = videoUrl,
+    thumbnailUrl = thumbnailUrl,
+    voiceoverUrl = voiceoverUrl,
     scriptLines = scriptLines.map { AdminMappers.encodeScriptLine(it) },
     createdAt = createdAt,
     updatedAt = System.currentTimeMillis()
@@ -85,6 +91,8 @@ fun DramaEntity.toDrama(episodes: List<Episode> = emptyList()): Drama = Drama(
     director = director,
     tags = tags,
     episodes = episodes.sortedBy { it.episodeNumber },
+    posterUrl = posterUrl,
+    trailerUrl = trailerUrl,
     isCustom = true,
     isPublished = isPublished,
     createdBy = createdBy,
@@ -107,6 +115,8 @@ fun Drama.toEntity(createdAt: Long = System.currentTimeMillis()): DramaEntity = 
     cast = cast,
     director = director,
     tags = tags,
+    posterUrl = posterUrl,
+    trailerUrl = trailerUrl,
     isPublished = isPublished,
     createdBy = createdBy,
     createdAt = createdAt,

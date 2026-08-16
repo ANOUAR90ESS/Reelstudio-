@@ -1,6 +1,7 @@
 package com.example.ui.screens.admin
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.MovieFilter
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -46,7 +48,10 @@ import com.example.data.admin.AdminPalette
 import com.example.data.admin.DramaField
 import com.example.data.admin.DramaFormState
 import com.example.data.model.DramaGenre
+import android.net.Uri
+import com.example.data.firebase.MediaUploader
 import com.example.ui.components.AdminChipInput
+import com.example.ui.components.AdminMediaField
 import com.example.ui.components.AdminChoiceRow
 import com.example.ui.components.AdminGradientPicker
 import com.example.ui.components.AdminSectionCard
@@ -72,7 +77,10 @@ fun AdminDramaEditorScreen(
     onSave: (DramaFormState) -> Unit,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
-    isSaving: Boolean = false
+    isSaving: Boolean = false,
+    uploadStates: Map<MediaUploader.MediaKind, MediaUploader.UploadState> = emptyMap(),
+    onUploadMedia: (Uri, MediaUploader.MediaKind, String?, (String) -> Unit) -> Unit = { _, _, _, _ -> },
+    onOpenAiWriter: () -> Unit = {}
 ) {
     var form by remember(initialForm.id, initialForm.editingExisting) { mutableStateOf(initialForm) }
     var submitted by remember { mutableStateOf(false) }
@@ -119,6 +127,10 @@ fun AdminDramaEditorScreen(
                     gradientStart = form.coverGradientStart,
                     gradientEnd = form.coverGradientEnd
                 )
+            }
+
+            item {
+                AiWriterBanner(onClick = onOpenAiWriter)
             }
 
             item {
@@ -195,6 +207,44 @@ fun AdminDramaEditorScreen(
                             form = form.copy(coverGradientStart = start, coverGradientEnd = end)
                         }
                     )
+                }
+            }
+
+            item {
+                AdminSectionCard(
+                    title = "Artwork & trailer",
+                    subtitle = "Upload from this device, or paste a URL you already host"
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        AdminMediaField(
+                            label = "Poster image",
+                            description = "Replaces the gradient cover everywhere in the app",
+                            value = form.posterUrl,
+                            kind = MediaUploader.MediaKind.POSTER,
+                            uploadState = uploadStates[MediaUploader.MediaKind.POSTER],
+                            onPickFile = { uri, name ->
+                                onUploadMedia(uri, MediaUploader.MediaKind.POSTER, name) { url ->
+                                    form = form.copy(posterUrl = url)
+                                }
+                            },
+                            onValueChange = { form = form.copy(posterUrl = it) },
+                            testTag = "admin_media_poster"
+                        )
+                        AdminMediaField(
+                            label = "Trailer video",
+                            description = "Optional preview played on the film detail page",
+                            value = form.trailerUrl,
+                            kind = MediaUploader.MediaKind.VIDEO,
+                            uploadState = uploadStates[MediaUploader.MediaKind.VIDEO],
+                            onPickFile = { uri, name ->
+                                onUploadMedia(uri, MediaUploader.MediaKind.VIDEO, name) { url ->
+                                    form = form.copy(trailerUrl = url)
+                                }
+                            },
+                            onValueChange = { form = form.copy(trailerUrl = it) },
+                            testTag = "admin_media_trailer"
+                        )
+                    }
                 }
             }
 
@@ -485,6 +535,49 @@ internal fun AdminEditorActionBar(
             Text(
                 text = if (isSaving) "Saving..." else saveLabel,
                 fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+/** Entry point to the Gemini story writer, offered at the top of the film editor. */
+@Composable
+internal fun AiWriterBanner(onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(
+                Brush.horizontalGradient(
+                    listOf(ReelRedPrimary.copy(alpha = 0.28f), ReelGoldPrimary.copy(alpha = 0.18f))
+                )
+            )
+            .clickable(onClick = onClick)
+            .padding(14.dp)
+            .testTag("admin_open_ai_writer"),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Default.AutoAwesome,
+            contentDescription = null,
+            tint = ReelGoldPrimary,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Write it with AI",
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+            )
+            Text(
+                text = "Describe an idea — Gemini drafts the title, synopsis, cast and episode list",
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = ReelTextSecondary,
+                    fontSize = 11.sp
+                )
             )
         }
     }

@@ -120,6 +120,8 @@ object AdminFirestore {
         "cast" to cast,
         "director" to director,
         "tags" to tags,
+        "posterUrl" to posterUrl,
+        "trailerUrl" to trailerUrl,
         "isPublished" to isPublished,
         "createdBy" to createdBy,
         "updatedAt" to System.currentTimeMillis()
@@ -134,6 +136,9 @@ object AdminFirestore {
         "isFree" to isFree,
         "coinCost" to coinCost,
         "previewSubtitle" to previewSubtitle,
+        "videoUrl" to videoUrl,
+        "thumbnailUrl" to thumbnailUrl,
+        "voiceoverUrl" to voiceoverUrl,
         "scriptLines" to scriptLines.map {
             mapOf(
                 "speaker" to it.speaker,
@@ -164,6 +169,8 @@ object AdminFirestore {
             @Suppress("UNCHECKED_CAST")
             tags = (map["tags"] as? List<String>).orEmpty(),
             episodes = episodes,
+            posterUrl = map["posterUrl"] as? String ?: "",
+            trailerUrl = map["trailerUrl"] as? String ?: "",
             isCustom = true,
             isPublished = map["isPublished"] as? Boolean ?: false,
             createdBy = map["createdBy"] as? String ?: "",
@@ -182,6 +189,9 @@ object AdminFirestore {
             isFree = map["isFree"] as? Boolean ?: false,
             coinCost = (map["coinCost"] as? Number)?.toInt() ?: 20,
             previewSubtitle = map["previewSubtitle"] as? String ?: "",
+            videoUrl = map["videoUrl"] as? String ?: "",
+            thumbnailUrl = map["thumbnailUrl"] as? String ?: "",
+            voiceoverUrl = map["voiceoverUrl"] as? String ?: "",
             scriptLines = rawLines.map {
                 ScriptLine(
                     speaker = it["speaker"] as? String ?: "",

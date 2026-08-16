@@ -20,11 +20,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,11 +49,15 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.net.Uri
 import com.example.data.admin.EpisodeField
 import com.example.data.admin.EpisodeFormState
 import com.example.data.model.Drama
 import com.example.data.model.Episode
 import com.example.data.model.ScriptLine
+import com.example.data.ai.StoryGenerator
+import com.example.data.firebase.MediaUploader
+import com.example.ui.components.AdminMediaField
 import com.example.ui.components.AdminSectionCard
 import com.example.ui.components.AdminTextField
 import com.example.ui.components.AdminToggleRow
@@ -77,7 +83,14 @@ fun AdminEpisodeEditorScreen(
     onDeleteEpisode: (Episode) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    isSaving: Boolean = false
+    isSaving: Boolean = false,
+    uploadStates: Map<MediaUploader.MediaKind, MediaUploader.UploadState> = emptyMap(),
+    onUploadMedia: (Uri, MediaUploader.MediaKind, String?, (String) -> Unit) -> Unit = { _, _, _, _ -> },
+    isGeneratingScript: Boolean = false,
+    onGenerateScript: (EpisodeFormState, (StoryGenerator.GeneratedScript) -> Unit) -> Unit = { _, _ -> },
+    pendingOutlines: List<StoryGenerator.GeneratedEpisode> = emptyList(),
+    onCreateFromOutlines: () -> Unit = {},
+    onDismissOutlines: () -> Unit = {}
 ) {
     var editingForm by remember(drama.id) { mutableStateOf<EpisodeFormState?>(null) }
     var pendingDelete by remember { mutableStateOf<Episode?>(null) }
@@ -92,9 +105,13 @@ fun AdminEpisodeEditorScreen(
 
         EpisodeForm(
             form = form,
-            dramaTitle = drama.title,
+            drama = drama,
             takenEpisodeNumbers = takenNumbers,
             isSaving = isSaving,
+            uploadStates = uploadStates,
+            onUploadMedia = onUploadMedia,
+            isGeneratingScript = isGeneratingScript,
+            onGenerateScript = onGenerateScript,
             onFormChange = { editingForm = it },
             onCancel = { editingForm = null },
             onSave = {
@@ -136,6 +153,16 @@ fun AdminEpisodeEditorScreen(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            if (pendingOutlines.isNotEmpty()) {
+                item {
+                    OutlineBanner(
+                        outlines = pendingOutlines,
+                        onCreate = onCreateFromOutlines,
+                        onDismiss = onDismissOutlines
+                    )
+                }
+            }
+
             item {
                 EpisodeSummaryBar(
                     total = drama.episodes.size,
@@ -213,9 +240,13 @@ fun AdminEpisodeEditorScreen(
 @Composable
 private fun EpisodeForm(
     form: EpisodeFormState,
-    dramaTitle: String,
+    drama: Drama,
     takenEpisodeNumbers: Set<Int>,
     isSaving: Boolean,
+    uploadStates: Map<MediaUploader.MediaKind, MediaUploader.UploadState>,
+    onUploadMedia: (Uri, MediaUploader.MediaKind, String?, (String) -> Unit) -> Unit,
+    isGeneratingScript: Boolean,
+    onGenerateScript: (EpisodeFormState, (StoryGenerator.GeneratedScript) -> Unit) -> Unit,
     onFormChange: (EpisodeFormState) -> Unit,
     onCancel: () -> Unit,
     onSave: (EpisodeFormState) -> Unit,
@@ -232,7 +263,7 @@ private fun EpisodeForm(
         topBar = {
             AdminEditorTopBar(
                 title = if (form.editingExisting) "Edit Episode" else "New Episode",
-                subtitle = dramaTitle,
+                subtitle = drama.title,
                 onBack = onCancel
             )
         },
@@ -341,13 +372,85 @@ private fun EpisodeForm(
 
             item {
                 AdminSectionCard(
+                    title = "Video",
+                    subtitle = "Upload the episode, or paste a URL you already host"
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        AdminMediaField(
+                            label = "Episode video",
+                            description = "Played full screen. Without it the episode falls back to the stylised scene.",
+                            value = form.videoUrl,
+                            kind = MediaUploader.MediaKind.VIDEO,
+                            uploadState = uploadStates[MediaUploader.MediaKind.VIDEO],
+                            onPickFile = { uri, name ->
+                                onUploadMedia(uri, MediaUploader.MediaKind.VIDEO, name) { url ->
+                                    onFormChange(form.copy(videoUrl = url))
+                                }
+                            },
+                            onValueChange = { onFormChange(form.copy(videoUrl = it)) },
+                            testTag = "admin_media_episode_video"
+                        )
+                        AdminMediaField(
+                            label = "Thumbnail",
+                            description = "Still frame shown in episode lists",
+                            value = form.thumbnailUrl,
+                            kind = MediaUploader.MediaKind.THUMBNAIL,
+                            uploadState = uploadStates[MediaUploader.MediaKind.THUMBNAIL],
+                            onPickFile = { uri, name ->
+                                onUploadMedia(uri, MediaUploader.MediaKind.THUMBNAIL, name) { url ->
+                                    onFormChange(form.copy(thumbnailUrl = url))
+                                }
+                            },
+                            onValueChange = { onFormChange(form.copy(thumbnailUrl = it)) },
+                            testTag = "admin_media_episode_thumb"
+                        )
+                        AdminMediaField(
+                            label = "Voiceover track",
+                            description = "Optional narration laid over a silent video",
+                            value = form.voiceoverUrl,
+                            kind = MediaUploader.MediaKind.VOICEOVER,
+                            uploadState = uploadStates[MediaUploader.MediaKind.VOICEOVER],
+                            onPickFile = { uri, name ->
+                                onUploadMedia(uri, MediaUploader.MediaKind.VOICEOVER, name) { url ->
+                                    onFormChange(form.copy(voiceoverUrl = url))
+                                }
+                            },
+                            onValueChange = { onFormChange(form.copy(voiceoverUrl = it)) },
+                            testTag = "admin_media_episode_voice"
+                        )
+                    }
+                }
+            }
+
+            item {
+                AdminSectionCard(
                     title = "Script",
                     subtitle = "Subtitle lines shown while the episode plays"
                 ) {
-                    ScriptLineEditor(
-                        lines = form.scriptLines,
-                        onLinesChange = { onFormChange(form.copy(scriptLines = it)) }
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        WriteScriptWithAiButton(
+                            isGenerating = isGeneratingScript,
+                            onClick = {
+                                onGenerateScript(form) { script ->
+                                    // The generated script replaces the lines but keeps whatever
+                                    // teaser the admin already wrote by hand.
+                                    onFormChange(
+                                        form.copy(
+                                            scriptLines = script.lines,
+                                            previewSubtitle = form.previewSubtitle.ifBlank {
+                                                script.previewSubtitle
+                                            }
+                                        )
+                                    )
+                                }
+                            }
+                        )
+
+                        ScriptLineEditor(
+                            lines = form.scriptLines,
+                            onLinesChange = { onFormChange(form.copy(scriptLines = it)) }
+                        )
+                    }
                 }
             }
         }
@@ -611,4 +714,123 @@ private fun formatTimestamp(totalSeconds: Int): String {
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     return "%d:%02d".format(minutes, seconds)
+}
+
+/** Offers to turn a generated episode outline into real draft episodes. */
+@Composable
+private fun OutlineBanner(
+    outlines: List<StoryGenerator.GeneratedEpisode>,
+    onCreate: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(ReelSurfaceDark)
+            .padding(14.dp)
+            .testTag("admin_outline_banner")
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Default.AutoAwesome,
+                contentDescription = null,
+                tint = ReelGoldPrimary,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "${outlines.size} episodes outlined by AI",
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "Create them as drafts, then add a video and script to each one.",
+            style = MaterialTheme.typography.bodySmall.copy(
+                color = ReelTextTertiary,
+                fontSize = 11.sp
+            )
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier
+                    .weight(2f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(ReelRedPrimary)
+                    .clickable(onClick = onCreate)
+                    .padding(vertical = 9.dp)
+                    .testTag("admin_create_from_outline"),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "Create ${outlines.size} episodes",
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(ReelSurfaceHighlight)
+                    .clickable(onClick = onDismiss)
+                    .padding(vertical = 9.dp),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "Dismiss",
+                    style = MaterialTheme.typography.labelMedium.copy(color = ReelTextSecondary)
+                )
+            }
+        }
+    }
+}
+
+/** Asks Gemini to write the dialogue for the episode currently open in the form. */
+@Composable
+private fun WriteScriptWithAiButton(
+    isGenerating: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (isGenerating) ReelSurfaceHighlight else ReelGoldPrimary.copy(alpha = 0.18f))
+            .clickable(enabled = !isGenerating, onClick = onClick)
+            .padding(vertical = 10.dp)
+            .testTag("admin_write_script_ai"),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (isGenerating) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(14.dp),
+                color = ReelGoldPrimary,
+                strokeWidth = 2.dp
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Default.AutoAwesome,
+                contentDescription = null,
+                tint = ReelGoldPrimary,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = if (isGenerating) "Writing the script..." else "Write this script with AI",
+            style = MaterialTheme.typography.labelMedium.copy(
+                color = ReelGoldPrimary,
+                fontWeight = FontWeight.Bold
+            )
+        )
+    }
 }

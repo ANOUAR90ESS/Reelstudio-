@@ -1,0 +1,58 @@
+rules_version = '2';
+
+// Security rules for the ReelShort media bucket.
+//
+// Catalog media (episode videos, posters, thumbnails, voiceover tracks) is world-readable — that is
+// what lets any viewer stream an episode — but only admins may write it. As with firestore.rules,
+// this is the real enforcement: the app hiding the upload button is not what stops a viewer from
+// uploading, these rules are.
+//
+// Deploy with:  firebase deploy --only storage
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isAdmin() {
+      return request.auth != null
+        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isVideo() {
+      return request.resource.contentType.matches('video/.*');
+    }
+
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    function isAudio() {
+      return request.resource.contentType.matches('audio/.*');
+    }
+
+    // catalog/{dramaId}/{videos|posters|thumbnails|voiceovers}/{file}
+    match /catalog/{dramaId}/videos/{file} {
+      allow read: if true;
+      allow write: if isAdmin() && isVideo() && request.resource.size < 512 * 1024 * 1024;
+    }
+
+    match /catalog/{dramaId}/posters/{file} {
+      allow read: if true;
+      allow write: if isAdmin() && isImage() && request.resource.size < 12 * 1024 * 1024;
+    }
+
+    match /catalog/{dramaId}/thumbnails/{file} {
+      allow read: if true;
+      allow write: if isAdmin() && isImage() && request.resource.size < 12 * 1024 * 1024;
+    }
+
+    match /catalog/{dramaId}/voiceovers/{file} {
+      allow read: if true;
+      allow write: if isAdmin() && isAudio() && request.resource.size < 128 * 1024 * 1024;
+    }
+
+    // Anything else in the bucket is closed by default.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

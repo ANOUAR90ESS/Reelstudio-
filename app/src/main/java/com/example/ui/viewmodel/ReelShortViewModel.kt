@@ -18,6 +18,8 @@ import com.example.data.admin.AdminConfig
 import com.example.data.admin.AdminStats
 import com.example.data.admin.DramaFormState
 import com.example.data.admin.EpisodeFormState
+import com.example.data.ai.StoryGenerator
+import com.example.data.firebase.MediaUploader
 import com.example.data.repository.DramaRepository
 import com.example.data.firebase.AdminFirestore
 import com.example.data.firebase.AuthHelper
@@ -798,6 +800,211 @@ class ReelShortViewModel(application: Application) : AndroidViewModel(applicatio
         _adminRoute.value = AdminRoute.None
         showToast("Admin access is required for this action")
         return false
+    }
+
+
+    // ==========================================
+    // ADMIN CONSOLE: AI WRITING + MEDIA UPLOADS
+    // ==========================================
+
+    private val _showStoryGenerator = MutableStateFlow(false)
+    val showStoryGenerator: StateFlow<Boolean> = _showStoryGenerator.asStateFlow()
+
+    private val _isGeneratingStory = MutableStateFlow(false)
+    val isGeneratingStory: StateFlow<Boolean> = _isGeneratingStory.asStateFlow()
+
+    private val _generatedStory = MutableStateFlow<StoryGenerator.GeneratedStory?>(null)
+    val generatedStory: StateFlow<StoryGenerator.GeneratedStory?> = _generatedStory.asStateFlow()
+
+    private val _aiErrorMessage = MutableStateFlow<String?>(null)
+    val aiErrorMessage: StateFlow<String?> = _aiErrorMessage.asStateFlow()
+
+    /**
+     * Episode outlines from the last accepted generation, kept so the episode manager can offer to
+     * create them in one go after the film itself has been saved.
+     */
+    private val _pendingEpisodeOutlines = MutableStateFlow<List<StoryGenerator.GeneratedEpisode>>(emptyList())
+    val pendingEpisodeOutlines: StateFlow<List<StoryGenerator.GeneratedEpisode>> =
+        _pendingEpisodeOutlines.asStateFlow()
+
+    /** Upload progress per media slot, keyed by [MediaUploader.MediaKind]. */
+    private val _uploadStates = MutableStateFlow<Map<MediaUploader.MediaKind, MediaUploader.UploadState>>(emptyMap())
+    val uploadStates: StateFlow<Map<MediaUploader.MediaKind, MediaUploader.UploadState>> =
+        _uploadStates.asStateFlow()
+
+    private var uploadJobs = mutableMapOf<MediaUploader.MediaKind, Job>()
+
+    fun openStoryGenerator() {
+        _aiErrorMessage.value = null
+        _generatedStory.value = null
+        _showStoryGenerator.value = true
+    }
+
+    fun closeStoryGenerator() {
+        _showStoryGenerator.value = false
+        _aiErrorMessage.value = null
+        _generatedStory.value = null
+    }
+
+    fun generateStory(idea: String, genre: DramaGenre, episodeCount: Int) {
+        if (!requireAdmin()) return
+        if (idea.isBlank()) {
+            _aiErrorMessage.value = "Describe your idea first"
+            return
+        }
+
+        viewModelScope.launch {
+            _isGeneratingStory.value = true
+            _aiErrorMessage.value = null
+            StoryGenerator.generateStory(idea, genre, episodeCount)
+                .onSuccess { _generatedStory.value = it }
+                .onFailure { error ->
+                    _aiErrorMessage.value = error.localizedMessage
+                        ?: "Could not reach the story writer. Check that Firebase AI Logic is enabled for this project."
+                }
+            _isGeneratingStory.value = false
+        }
+    }
+
+    /**
+     * Folds a generated concept into the open film editor. The admin still reviews and saves — the
+     * generator never writes to the catalog on its own.
+     */
+    fun applyGeneratedStory(story: StoryGenerator.GeneratedStory) {
+        val route = _adminRoute.value
+        val currentForm = (route as? AdminRoute.FilmEditor)?.form ?: DramaFormState(
+            createdBy = _currentUser.value?.uid.orEmpty()
+        )
+
+        _adminRoute.value = AdminRoute.FilmEditor(
+            form = currentForm.copy(
+                title = story.title,
+                description = story.synopsis,
+                tags = story.tags,
+                cast = story.cast,
+                director = story.director.ifBlank { currentForm.director },
+                totalEpisodes = story.episodes.size.coerceAtLeast(
+                    currentForm.totalEpisodes.toIntOrNull() ?: 0
+                ).toString()
+            )
+        )
+        _pendingEpisodeOutlines.value = story.episodes
+        closeStoryGenerator()
+        showToast("Story applied — review it, then save")
+    }
+
+    /**
+     * Creates one draft episode per generated outline. Episodes that would collide with a number
+     * the film already uses are skipped rather than overwriting existing work.
+     */
+    fun createEpisodesFromOutlines(dramaId: String) {
+        if (!requireAdmin()) return
+        val outlines = _pendingEpisodeOutlines.value
+        if (outlines.isEmpty()) return
+
+        viewModelScope.launch {
+            _isSavingAdminContent.value = true
+            val existing = repository.getAdminDrama(dramaId)?.episodes.orEmpty()
+            val taken = existing.map { it.episodeNumber }.toMutableSet()
+            var created = 0
+
+            outlines.forEach { outline ->
+                if (outline.episodeNumber in taken) return@forEach
+                val form = EpisodeFormState(
+                    dramaId = dramaId,
+                    episodeNumber = outline.episodeNumber.toString(),
+                    title = outline.title,
+                    previewSubtitle = outline.hook,
+                    isFree = outline.episodeNumber <= 3,
+                    coinCost = if (outline.episodeNumber <= 3) "0" else "20"
+                )
+                repository.saveAdminEpisode(form.toEpisode()).onSuccess {
+                    taken += outline.episodeNumber
+                    created++
+                }
+            }
+
+            _isSavingAdminContent.value = false
+            _pendingEpisodeOutlines.value = emptyList()
+            showToast(
+                if (created > 0) "Created $created episode(s) from the outline"
+                else "Those episode numbers already exist"
+            )
+        }
+    }
+
+    fun clearEpisodeOutlines() {
+        _pendingEpisodeOutlines.value = emptyList()
+    }
+
+    /**
+     * Writes the dialogue for an episode that is already open in the editor. Returns the generated
+     * script through [onScriptReady] so the form can merge it without a round trip to the database.
+     */
+    fun generateEpisodeScript(
+        form: EpisodeFormState,
+        seriesTitle: String,
+        synopsis: String,
+        cast: List<String>,
+        onScriptReady: (StoryGenerator.GeneratedScript) -> Unit
+    ) {
+        if (!requireAdmin()) return
+
+        viewModelScope.launch {
+            _isGeneratingStory.value = true
+            _aiErrorMessage.value = null
+            StoryGenerator.generateScript(
+                seriesTitle = seriesTitle,
+                synopsis = synopsis,
+                episodeTitle = form.title.ifBlank { "Episode ${form.episodeNumber}" },
+                episodeNumber = form.episodeNumber.toIntOrNull() ?: 1,
+                durationSeconds = form.durationSeconds.toIntOrNull() ?: 85,
+                cast = cast
+            ).onSuccess { script ->
+                onScriptReady(script)
+                showToast("Script written — ${script.lines.size} lines")
+            }.onFailure { error ->
+                _aiErrorMessage.value = error.localizedMessage ?: "Could not write the script"
+                showToast(_aiErrorMessage.value ?: "Script generation failed")
+            }
+            _isGeneratingStory.value = false
+        }
+    }
+
+    /**
+     * Uploads a picked file and hands the resulting download URL back through [onUploaded].
+     *
+     * Only one upload per media kind runs at a time: picking a second video replaces the first
+     * rather than racing it, so the field cannot end up pointing at the losing upload.
+     */
+    fun uploadMedia(
+        uri: android.net.Uri,
+        dramaId: String,
+        kind: MediaUploader.MediaKind,
+        fileName: String?,
+        onUploaded: (String) -> Unit
+    ) {
+        if (!requireAdmin()) return
+
+        uploadJobs[kind]?.cancel()
+        uploadJobs[kind] = viewModelScope.launch {
+            MediaUploader.upload(uri, dramaId, kind, fileName).collect { state ->
+                _uploadStates.value = _uploadStates.value + (kind to state)
+                when (state) {
+                    is MediaUploader.UploadState.Success -> {
+                        onUploaded(state.downloadUrl)
+                        showToast("Upload complete")
+                        _uploadStates.value = _uploadStates.value - kind
+                    }
+
+                    is MediaUploader.UploadState.Failed -> {
+                        showToast(state.error.localizedMessage ?: "Upload failed")
+                    }
+
+                    is MediaUploader.UploadState.InProgress -> Unit
+                }
+            }
+        }
     }
 
     private fun startPlaybackTicker() {

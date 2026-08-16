@@ -30,6 +30,8 @@ data class DramaFormState(
     val tags: List<String> = emptyList(),
     val coverGradientStart: Long = AdminPalette.presets.first().start,
     val coverGradientEnd: Long = AdminPalette.presets.first().end,
+    val posterUrl: String = "",
+    val trailerUrl: String = "",
     val isPublished: Boolean = false,
     val createdBy: String = "",
     /** Non-null while editing an existing film; null when composing a new one. */
@@ -99,6 +101,8 @@ data class DramaFormState(
         cast = cast.map { it.trim() }.filter { it.isNotEmpty() },
         director = director.trim(),
         tags = tags.map { it.trim() }.filter { it.isNotEmpty() },
+        posterUrl = posterUrl.trim(),
+        trailerUrl = trailerUrl.trim(),
         isCustom = true,
         isPublished = isPublished,
         createdBy = createdBy
@@ -124,6 +128,8 @@ data class DramaFormState(
             tags = drama.tags,
             coverGradientStart = drama.coverGradientStart,
             coverGradientEnd = drama.coverGradientEnd,
+            posterUrl = drama.posterUrl,
+            trailerUrl = drama.trailerUrl,
             isPublished = drama.isPublished,
             createdBy = drama.createdBy,
             editingExisting = true
@@ -160,6 +166,9 @@ data class EpisodeFormState(
     val isFree: Boolean = false,
     val coinCost: String = "20",
     val previewSubtitle: String = "",
+    val videoUrl: String = "",
+    val thumbnailUrl: String = "",
+    val voiceoverUrl: String = "",
     val scriptLines: List<ScriptLine> = emptyList(),
     val editingExisting: Boolean = false
 ) {
@@ -220,6 +229,9 @@ data class EpisodeFormState(
             // Free episodes must not carry a price, or the unlock dialog would charge for them.
             coinCost = if (isFree) 0 else coinCost.trim().toIntOrNull()?.coerceAtLeast(0) ?: 20,
             previewSubtitle = previewSubtitle.trim(),
+            videoUrl = videoUrl.trim(),
+            thumbnailUrl = thumbnailUrl.trim(),
+            voiceoverUrl = voiceoverUrl.trim(),
             scriptLines = scriptLines.filter { it.speaker.isNotBlank() && it.text.isNotBlank() }
         )
     }
@@ -237,6 +249,9 @@ data class EpisodeFormState(
             isFree = episode.isFree,
             coinCost = episode.coinCost.toString(),
             previewSubtitle = episode.previewSubtitle,
+            videoUrl = episode.videoUrl,
+            thumbnailUrl = episode.thumbnailUrl,
+            voiceoverUrl = episode.voiceoverUrl,
             scriptLines = episode.scriptLines,
             editingExisting = true
         )

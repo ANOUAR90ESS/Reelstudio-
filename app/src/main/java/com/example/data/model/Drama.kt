@@ -17,6 +17,10 @@ data class Drama(
     val director: String = "David Lin",
     val tags: List<String> = listOf("Billionaire", "Secret Identity", "Revenge", "Romance"),
     val episodes: List<Episode> = emptyList(),
+    /** Remote poster artwork. When blank the app falls back to [coverGradientStart]/[coverGradientEnd]. */
+    val posterUrl: String = "",
+    /** Optional trailer played on the detail screen. */
+    val trailerUrl: String = "",
     /** True for catalog entries created from the admin console (as opposed to the bundled samples). */
     val isCustom: Boolean = false,
     /** Admin-authored films stay hidden from viewers until they are published. Samples are always live. */
@@ -35,8 +39,19 @@ data class Episode(
     val isFree: Boolean = false,
     val coinCost: Int = 20,
     val previewSubtitle: String = "The shocking confrontation begins...",
+    /**
+     * Playable video for this episode. When blank the player falls back to the stylised canvas
+     * scene, so an episode is still previewable while its video is being produced.
+     */
+    val videoUrl: String = "",
+    /** Still frame shown before playback starts and in episode lists. */
+    val thumbnailUrl: String = "",
+    /** Optional separate voiceover track, e.g. a generated narration laid over a silent video. */
+    val voiceoverUrl: String = "",
     val scriptLines: List<ScriptLine> = emptyList()
-)
+) {
+    val hasVideo: Boolean get() = videoUrl.isNotBlank()
+}
 
 data class ScriptLine(
     val speaker: String,
