@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Rounded film reel card container (centered safe-zone: 30 to 78) -->
+    <path
+        android:pathData="M33,26 L75,26 A8,8 0 0 1 83,34 L83,74 A8,8 0 0 1 75,82 L33,82 A8,8 0 0 1 25,74 L25,34 A8,8 0 0 1 33,26 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="25"
+                android:startY="26"
+                android:endX="83"
+                android:endY="82"
+                android:type="linear">
+                <item android:color="#E61E25" android:offset="0.0" />
+                <item android:color="#9A081D" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Vertical film strip holes on left -->
+    <path
+        android:fillColor="#30FFFFFF"
+        android:pathData="M28,32h4v5h-4z M28,42h4v5h-4z M28,52h4v5h-4z M28,62h4v5h-4z M28,72h4v5h-4z" />
+
+    <!-- Vertical film strip holes on right -->
+    <path
+        android:fillColor="#30FFFFFF"
+        android:pathData="M76,32h4v5h-4z M76,42h4v5h-4z M76,52h4v5h-4z M76,62h4v5h-4z M76,72h4v5h-4z" />
+
+    <!-- Stylized Play Symbol with glowing warm gold/white gradient -->
+    <path
+        android:pathData="M48,39 L68,54 L48,69 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="48"
+                android:startY="39"
+                android:endX="68"
+                android:endY="69"
+                android:type="linear">
+                <item android:color="#FFFFFF" android:offset="0.0" />
+                <item android:color="#FFE8A3" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Sparkle / Star top right of play icon -->
+    <path
+        android:fillColor="#FFDF78"
+        android:pathData="M67,31 L69,35 L73,37 L69,39 L67,43 L65,39 L61,37 L65,35 Z" />
+</vector>

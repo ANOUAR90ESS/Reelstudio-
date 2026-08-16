@@ -1,0 +1,79 @@
+package com.example.data.model
+
+data class Drama(
+    val id: String,
+    val title: String,
+    val description: String,
+    val coverGradientStart: Long,
+    val coverGradientEnd: Long,
+    val badge: String? = null, // "HOT", "NEW", "TOP 1", "VIP"
+    val genre: DramaGenre,
+    val rating: Float = 4.9f,
+    val viewCount: String = "12.4M",
+    val likeCount: String = "840K",
+    val totalEpisodes: Int = 45,
+    val releaseYear: Int = 2024,
+    val cast: List<String> = listOf("Alexander Vance", "Elena Sterling", "Marcus Thorne"),
+    val director: String = "David Lin",
+    val tags: List<String> = listOf("Billionaire", "Secret Identity", "Revenge", "Romance"),
+    val episodes: List<Episode> = emptyList()
+)
+
+data class Episode(
+    val id: String,
+    val dramaId: String,
+    val episodeNumber: Int,
+    val title: String,
+    val durationSeconds: Int = 85,
+    val isFree: Boolean = false,
+    val coinCost: Int = 20,
+    val previewSubtitle: String = "The shocking confrontation begins...",
+    val scriptLines: List<ScriptLine> = emptyList()
+)
+
+data class ScriptLine(
+    val speaker: String,
+    val text: String,
+    val timestampSeconds: Int
+)
+
+enum class DramaGenre(val displayName: String) {
+    ALL("All"),
+    BILLIONAIRE("Billionaire"),
+    WEREWOLF("Werewolf & Alpha"),
+    REVENGE("Revenge"),
+    ROMANCE("Romance"),
+    SWEET_LOVE("Sweet Love"),
+    SUSPENSE("Urban & Suspense")
+}
+
+data class DramaComment(
+    val id: String,
+    val dramaId: String,
+    val episodeNumber: Int,
+    val userName: String,
+    val userAvatarColor: Long,
+    val content: String,
+    val timestamp: String,
+    val likes: Int = 12,
+    val isLiked: Boolean = false
+)
+
+data class CoinPackage(
+    val id: String,
+    val coins: Int,
+    val bonusCoins: Int,
+    val priceUsd: String,
+    val isPopular: Boolean = false,
+    val tag: String? = null
+)
+
+data class DailyTask(
+    val id: String,
+    val title: String,
+    val description: String,
+    val rewardCoins: Int,
+    val targetCount: Int,
+    val currentCount: Int,
+    val isClaimed: Boolean = false
+)

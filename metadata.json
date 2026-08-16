@@ -1,0 +1,6 @@
+{
+  "name": "ReelShort",
+  "description": "Stream exclusive short-form vertical TV dramas, romantic series, billionaire thrillers, and mini-episodes with coin rewards and interactive playback.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
