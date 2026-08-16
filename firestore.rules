@@ -1,0 +1,84 @@
+rules_version = '2';
+
+// Security rules for the ReelShort catalog.
+//
+// These rules — not the app UI — are what actually makes creating films and episodes an
+// admin-only capability. The client hides the console from viewers, but anybody can run a patched
+// build or call the REST API directly, so every write is re-checked here against the caller's
+// `users/{uid}.role` document field.
+//
+// Deploy with:  firebase deploy --only firestore:rules
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && userDoc().role == 'admin';
+    }
+
+    // ------------------------------------------------------------------
+    // User profiles
+    // ------------------------------------------------------------------
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+
+      // A user owns their profile, but must not be able to grant themselves the admin role:
+      // either the role is unchanged, or an existing admin is making the change.
+      allow create: if isSignedIn()
+                    && request.auth.uid == userId
+                    && (!('role' in request.resource.data) || request.resource.data.role == 'user');
+
+      allow update: if isSignedIn()
+                    && request.auth.uid == userId
+                    && (
+                         !('role' in request.resource.data)
+                         || request.resource.data.role == resource.data.get('role', 'user')
+                       );
+
+      // Role changes (promoting another admin, demoting one) are an admin-only operation.
+      allow update: if isAdmin();
+
+      allow delete: if isAdmin();
+
+      // Personal chat history stays private to its owner.
+      match /user_chats/{messageId} {
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // Catalog: films and their episodes — admin-authored, world-readable
+    // ------------------------------------------------------------------
+    match /dramas/{dramaId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+
+      match /episodes/{episodeId} {
+        allow read: if true;
+        allow create, update, delete: if isAdmin();
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // Episode discussion threads
+    // ------------------------------------------------------------------
+    match /drama_chats/{messageId} {
+      allow read: if true;
+
+      // A signed-in viewer may post as themselves; only the author or an admin can change or
+      // remove a message afterwards.
+      allow create: if isSignedIn() && request.resource.data.senderId == request.auth.uid;
+      allow update, delete: if isAdmin()
+                            || (isSignedIn() && resource.data.senderId == request.auth.uid);
+    }
+  }
+}

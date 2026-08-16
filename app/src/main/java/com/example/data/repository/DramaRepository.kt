@@ -13,18 +13,48 @@ import com.example.data.model.DramaComment
 import com.example.data.model.DramaGenre
 import com.example.data.model.Episode
 import com.example.data.model.SampleDramas
+import com.example.data.admin.AdminContentRepository
+import com.example.data.admin.AdminStats
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import java.util.concurrent.TimeUnit
 
-class DramaRepository(private val dao: ReelShortDao) {
+class DramaRepository(
+    private val dao: ReelShortDao,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val adminContent: AdminContentRepository = AdminContentRepository(dao)
+) {
 
-    private val _dramas = MutableStateFlow<List<Drama>>(SampleDramas.dramas)
-    val dramas: StateFlow<List<Drama>> = _dramas.asStateFlow()
+    /**
+     * Films authored in the admin console, drafts included. The console reads this; viewers read
+     * [dramas], which only ever exposes published entries.
+     */
+    val adminDramas: StateFlow<List<Drama>> = adminContent.adminDramas.stateIn(
+        scope = scope,
+        started = SharingStarted.Eagerly,
+        initialValue = emptyList()
+    )
+
+    /**
+     * The catalog viewers browse: published admin films first (newest edits at the top), then the
+     * bundled samples.
+     */
+    val dramas: StateFlow<List<Drama>> = adminDramas
+        .map { authored -> authored.filter { it.isPublished } + SampleDramas.dramas }
+        .stateIn(
+            scope = scope,
+            started = SharingStarted.Eagerly,
+            initialValue = SampleDramas.dramas
+        )
 
     private val _dailyTasks = MutableStateFlow<List<DailyTask>>(SampleDramas.defaultDailyTasks)
     val dailyTasks: StateFlow<List<DailyTask>> = _dailyTasks.asStateFlow()
@@ -38,20 +68,20 @@ class DramaRepository(private val dao: ReelShortDao) {
     val allUnlockedEpisodes: Flow<List<UnlockedEpisodeEntity>> = dao.getAllUnlockedEpisodes()
 
     fun getDramaById(dramaId: String): Drama? {
-        return _dramas.value.find { it.id == dramaId }
+        return dramas.value.find { it.id == dramaId }
     }
 
     fun getDramasByGenre(genre: DramaGenre): List<Drama> {
         return if (genre == DramaGenre.ALL) {
-            _dramas.value
+            dramas.value
         } else {
-            _dramas.value.filter { it.genre == genre }
+            dramas.value.filter { it.genre == genre }
         }
     }
 
     fun searchDramas(query: String, genre: DramaGenre = DramaGenre.ALL): List<Drama> {
         val q = query.trim().lowercase()
-        return _dramas.value.filter { drama ->
+        return dramas.value.filter { drama ->
             val matchesGenre = genre == DramaGenre.ALL || drama.genre == genre
             val matchesQuery = q.isEmpty() ||
                     drama.title.lowercase().contains(q) ||
@@ -237,4 +267,24 @@ class DramaRepository(private val dao: ReelShortDao) {
         }
         return reward
     }
+
+    // ==========================================
+    // ADMIN CONSOLE DELEGATION
+    // ==========================================
+
+    val adminStats: AdminStats get() = adminContent.stats(adminDramas.value)
+
+    fun getAdminDrama(dramaId: String): Drama? = adminDramas.value.find { it.id == dramaId }
+
+    suspend fun saveAdminDrama(drama: Drama): Result<Drama> = adminContent.saveDrama(drama)
+
+    suspend fun deleteAdminDrama(dramaId: String): Result<Unit> = adminContent.deleteDrama(dramaId)
+
+    suspend fun setAdminDramaPublished(dramaId: String, published: Boolean): Result<Drama?> =
+        adminContent.setPublished(dramaId, published)
+
+    suspend fun saveAdminEpisode(episode: Episode): Result<Episode> = adminContent.saveEpisode(episode)
+
+    suspend fun deleteAdminEpisode(dramaId: String, episodeId: String): Result<Unit> =
+        adminContent.deleteEpisode(dramaId, episodeId)
 }

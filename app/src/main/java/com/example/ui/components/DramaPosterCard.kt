@@ -32,6 +32,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -80,6 +82,17 @@ fun DramaPosterCard(
                         )
                     )
             ) {
+                // Real artwork when the film has a poster. The gradient stays underneath as the
+                // placeholder, so a slow or failed image load still looks intentional.
+                if (drama.posterUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = drama.posterUrl,
+                        contentDescription = drama.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
                 // Dramatic decorative cinema scene artwork lines
                 Box(
                     modifier = Modifier
