@@ -16,7 +16,14 @@ data class Drama(
     val cast: List<String> = listOf("Alexander Vance", "Elena Sterling", "Marcus Thorne"),
     val director: String = "David Lin",
     val tags: List<String> = listOf("Billionaire", "Secret Identity", "Revenge", "Romance"),
-    val episodes: List<Episode> = emptyList()
+    val episodes: List<Episode> = emptyList(),
+    /** True for catalog entries created from the admin console (as opposed to the bundled samples). */
+    val isCustom: Boolean = false,
+    /** Admin-authored films stay hidden from viewers until they are published. Samples are always live. */
+    val isPublished: Boolean = true,
+    /** UID of the admin who authored this film; empty for the bundled samples. */
+    val createdBy: String = "",
+    val updatedAt: Long = 0L
 )
 
 data class Episode(

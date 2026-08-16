@@ -1,6 +1,7 @@
 package com.example.data.local
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 @Entity(tableName = "watch_history")
@@ -56,4 +57,56 @@ data class LocalCommentEntity(
     val content: String,
     val timestamp: Long = System.currentTimeMillis(),
     val likes: Int = 0
+)
+
+/**
+ * A film authored from the admin console. Bundled sample films are not stored here — the catalog
+ * shown to viewers is the union of [com.example.data.model.SampleDramas] and the published rows of
+ * this table.
+ */
+@Entity(tableName = "admin_dramas")
+data class DramaEntity(
+    @PrimaryKey
+    val id: String,
+    val title: String,
+    val description: String,
+    val coverGradientStart: Long,
+    val coverGradientEnd: Long,
+    val badge: String? = null,
+    /** Name of a [com.example.data.model.DramaGenre] constant. */
+    val genre: String,
+    val rating: Float = 4.8f,
+    val viewCount: String = "0",
+    val likeCount: String = "0",
+    val totalEpisodes: Int = 0,
+    val releaseYear: Int = 2024,
+    val cast: List<String> = emptyList(),
+    val director: String = "",
+    val tags: List<String> = emptyList(),
+    /** Drafts are invisible to viewers; publishing pushes the film into the public catalog. */
+    val isPublished: Boolean = false,
+    val createdBy: String = "",
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+/** An episode ("story") belonging to an admin-authored film. */
+@Entity(
+    tableName = "admin_episodes",
+    indices = [Index(value = ["dramaId"])]
+)
+data class EpisodeEntity(
+    @PrimaryKey
+    val id: String,
+    val dramaId: String,
+    val episodeNumber: Int,
+    val title: String,
+    val durationSeconds: Int = 85,
+    val isFree: Boolean = false,
+    val coinCost: Int = 20,
+    val previewSubtitle: String = "",
+    /** Encoded script lines, see [com.example.data.admin.AdminMappers]. */
+    val scriptLines: List<String> = emptyList(),
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis()
 )

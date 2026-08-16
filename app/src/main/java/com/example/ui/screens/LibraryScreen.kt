@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -88,6 +89,8 @@ fun LibraryScreen(
     unlockedList: List<UnlockedEpisodeEntity>,
     firebaseUser: FirebaseUser? = null,
     userProfile: UserProfile? = null,
+    isAdmin: Boolean = false,
+    onOpenAdminConsole: () -> Unit = {},
     onOpenAuth: () -> Unit = {},
     onSignOut: () -> Unit = {},
     onSelectDrama: (Drama, Int) -> Unit,
@@ -297,6 +300,13 @@ fun LibraryScreen(
                                 .testTag("library_sign_out_button")
                         )
                     }
+                }
+
+                // Only accounts carrying the admin role ever see this entry point. Viewers get no
+                // hint that the console exists.
+                if (isAdmin) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    AdminConsoleEntry(onClick = onOpenAdminConsole)
                 }
             }
         }
@@ -629,5 +639,63 @@ private fun EmptyState(
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
         }
+    }
+}
+
+/**
+ * Shortcut into the admin console, rendered in the Library profile header for admins only.
+ */
+@Composable
+private fun AdminConsoleEntry(onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(
+                Brush.horizontalGradient(
+                    listOf(ReelGoldPrimary.copy(alpha = 0.22f), ReelRedPrimary.copy(alpha = 0.18f))
+                )
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag("library_admin_console_button"),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Shield,
+                contentDescription = null,
+                tint = ReelGoldPrimary,
+                modifier = Modifier.size(18.dp)
+            )
+            Column {
+                Text(
+                    text = "Admin Console",
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+                Text(
+                    text = "Create films, add episodes, publish to viewers",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        color = ReelTextSecondary,
+                        fontSize = 10.sp
+                    )
+                )
+            }
+        }
+
+        Text(
+            text = "OPEN >",
+            style = MaterialTheme.typography.labelSmall.copy(
+                color = ReelGoldPrimary,
+                fontWeight = FontWeight.Black
+            )
+        )
     }
 }

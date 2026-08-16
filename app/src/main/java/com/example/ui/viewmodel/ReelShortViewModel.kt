@@ -14,7 +14,12 @@ import com.example.data.model.Drama
 import com.example.data.model.DramaComment
 import com.example.data.model.DramaGenre
 import com.example.data.model.Episode
+import com.example.data.admin.AdminConfig
+import com.example.data.admin.AdminStats
+import com.example.data.admin.DramaFormState
+import com.example.data.admin.EpisodeFormState
 import com.example.data.repository.DramaRepository
+import com.example.data.firebase.AdminFirestore
 import com.example.data.firebase.AuthHelper
 import com.example.data.firebase.ChatMessage
 import com.example.data.firebase.FirebaseHelper
@@ -28,6 +33,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -56,7 +62,7 @@ class ReelShortViewModel(application: Application) : AndroidViewModel(applicatio
 
     init {
         val database = AppDatabase.getDatabase(application)
-        repository = DramaRepository(database.reelShortDao())
+        repository = DramaRepository(database.reelShortDao(), viewModelScope)
     }
 
     val dramas: StateFlow<List<Drama>> = repository.dramas
@@ -162,6 +168,11 @@ class ReelShortViewModel(application: Application) : AndroidViewModel(applicatio
             _currentUser.value = user
             if (user != null) {
                 viewModelScope.launch {
+                    // A bootstrap owner may predate the role field; upgrade them once so the
+                    // Firestore rules recognise their writes too.
+                    if (AdminConfig.isBootstrapAdmin(user.email)) {
+                        AdminFirestore.ensureAdminRole(user.uid, user.email.orEmpty())
+                    }
                     val profile = FirebaseHelper.fetchUserProfile(user.uid)
                     if (profile != null) {
                         _userProfile.value = profile
@@ -554,6 +565,239 @@ class ReelShortViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun clearToast() {
         _toastMessage.value = null
+    }
+
+
+    // ==========================================
+    // ADMIN CONSOLE
+    // ==========================================
+
+    /** Films authored in the console, drafts included. Only reachable while [isAdmin] is true. */
+    val adminDramas: StateFlow<List<Drama>> = repository.adminDramas
+
+    private val _adminRoute = MutableStateFlow<AdminRoute>(AdminRoute.None)
+    val adminRoute: StateFlow<AdminRoute> = _adminRoute.asStateFlow()
+
+    private val _showAdminAccessDialog = MutableStateFlow(false)
+    val showAdminAccessDialog: StateFlow<Boolean> = _showAdminAccessDialog.asStateFlow()
+
+    private val _adminAccessError = MutableStateFlow<String?>(null)
+    val adminAccessError: StateFlow<String?> = _adminAccessError.asStateFlow()
+
+    private val _isSavingAdminContent = MutableStateFlow(false)
+    val isSavingAdminContent: StateFlow<Boolean> = _isSavingAdminContent.asStateFlow()
+
+    /**
+     * Set once the offline passcode has been accepted on this device. It is deliberately *not*
+     * persisted: content authored this way stays local until a real admin account publishes it, and
+     * a restart returns the app to viewer mode.
+     */
+    private val _localAdminUnlocked = MutableStateFlow(false)
+
+    /**
+     * Whether the admin entry point is offered at all: a signed-in account carrying the admin role,
+     * a bootstrap owner, or a device unlocked with the console passcode.
+     *
+     * Started eagerly, and every guard goes through [resolveIsAdmin] against the live sources —
+     * a derived flow that only recomputes while something collects it must never be what decides
+     * whether a write is allowed.
+     */
+    val isAdmin: StateFlow<Boolean> = combine(
+        _userProfile,
+        _currentUser,
+        _localAdminUnlocked
+    ) { profile, user, localUnlocked ->
+        resolveIsAdmin(profile, user?.email, localUnlocked)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = resolveIsAdmin(
+            _userProfile.value,
+            _currentUser.value?.email,
+            _localAdminUnlocked.value
+        )
+    )
+
+    private fun resolveIsAdmin(
+        profile: UserProfile?,
+        email: String?,
+        localUnlocked: Boolean
+    ): Boolean = profile?.isAdmin == true ||
+            AdminConfig.isBootstrapAdmin(email) ||
+            localUnlocked
+
+    /** Reads the sources directly, so a guard can never act on a stale derived value. */
+    private fun currentlyAdmin(): Boolean = resolveIsAdmin(
+        _userProfile.value,
+        _currentUser.value?.email,
+        _localAdminUnlocked.value
+    )
+
+    val adminStats: StateFlow<AdminStats> = repository.adminDramas
+        .map { AdminStats.of(it) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = AdminStats()
+        )
+
+    fun openAdminAccessDialog() {
+        _adminAccessError.value = null
+        _showAdminAccessDialog.value = true
+    }
+
+    fun closeAdminAccessDialog() {
+        _showAdminAccessDialog.value = false
+        _adminAccessError.value = null
+    }
+
+    /** Entry point for an account that already holds the admin role. */
+    fun enterAdminConsole() {
+        if (!currentlyAdmin()) {
+            showToast("Admin access is required to open the console")
+            return
+        }
+        _showAdminAccessDialog.value = false
+        _adminRoute.value = AdminRoute.Dashboard
+    }
+
+    /** Offline path: unlock the console on this device only. */
+    fun submitAdminPasscode(passcode: String) {
+        if (passcode.trim() == AdminConfig.LOCAL_ADMIN_PASSCODE) {
+            _localAdminUnlocked.value = true
+            _showAdminAccessDialog.value = false
+            _adminAccessError.value = null
+            _adminRoute.value = AdminRoute.Dashboard
+            showToast("Local admin console unlocked")
+        } else {
+            _adminAccessError.value = "Incorrect passcode"
+        }
+    }
+
+    fun exitAdminConsole() {
+        _adminRoute.value = AdminRoute.None
+    }
+
+    fun openAdminDashboard() {
+        _adminRoute.value = AdminRoute.Dashboard
+    }
+
+    fun openFilmEditor(drama: Drama?) {
+        val uid = _currentUser.value?.uid ?: _userProfile.value?.userId.orEmpty()
+        _adminRoute.value = AdminRoute.FilmEditor(
+            form = if (drama == null) {
+                DramaFormState(createdBy = uid)
+            } else {
+                DramaFormState.from(drama)
+            }
+        )
+    }
+
+    fun openEpisodeManager(dramaId: String) {
+        _adminRoute.value = AdminRoute.EpisodeManager(dramaId)
+    }
+
+    fun saveFilm(form: DramaFormState) {
+        if (!requireAdmin()) return
+        val errors = form.validate()
+        if (errors.isNotEmpty()) {
+            showToast(errors.values.first())
+            return
+        }
+
+        viewModelScope.launch {
+            _isSavingAdminContent.value = true
+            val result = repository.saveAdminDrama(form.toDrama())
+            _isSavingAdminContent.value = false
+            result.onSuccess { saved ->
+                showToast(
+                    if (form.editingExisting) "Saved \"${saved.title}\"" else "Created \"${saved.title}\""
+                )
+                // A brand new film has no episodes yet, so drop the admin straight into the
+                // episode manager instead of back to a dashboard row they would have to find.
+                _adminRoute.value = if (form.editingExisting) {
+                    AdminRoute.Dashboard
+                } else {
+                    AdminRoute.EpisodeManager(saved.id)
+                }
+            }.onFailure { error ->
+                showToast(error.localizedMessage ?: "Could not save the film")
+            }
+        }
+    }
+
+    fun deleteFilm(dramaId: String) {
+        if (!requireAdmin()) return
+        viewModelScope.launch {
+            repository.deleteAdminDrama(dramaId)
+                .onSuccess {
+                    // The viewer may have been watching the film that just disappeared.
+                    if (_selectedDrama.value?.id == dramaId) {
+                        _selectedDrama.value = repository.dramas.value.firstOrNull()
+                        _currentEpisodeIndex.value = 0
+                        _playbackProgress.value = 0
+                    }
+                    showToast("Film deleted")
+                }
+                .onFailure { showToast(it.localizedMessage ?: "Could not delete the film") }
+        }
+    }
+
+    fun toggleFilmPublished(dramaId: String, published: Boolean) {
+        if (!requireAdmin()) return
+        viewModelScope.launch {
+            repository.setAdminDramaPublished(dramaId, published)
+                .onSuccess {
+                    showToast(if (published) "Film is live for viewers" else "Film moved back to drafts")
+                }
+                .onFailure { showToast(it.localizedMessage ?: "Could not change visibility") }
+        }
+    }
+
+    fun saveEpisode(form: EpisodeFormState) {
+        if (!requireAdmin()) return
+        val drama = repository.getAdminDrama(form.dramaId)
+        val taken = drama?.episodes.orEmpty()
+            .filter { it.id != form.id }
+            .map { it.episodeNumber }
+            .toSet()
+
+        val errors = form.validate(taken)
+        if (errors.isNotEmpty()) {
+            showToast(errors.values.first())
+            return
+        }
+
+        viewModelScope.launch {
+            _isSavingAdminContent.value = true
+            val result = repository.saveAdminEpisode(form.toEpisode())
+            _isSavingAdminContent.value = false
+            result.onSuccess { episode ->
+                showToast("Episode ${episode.episodeNumber} saved")
+            }.onFailure { error ->
+                showToast(error.localizedMessage ?: "Could not save the episode")
+            }
+        }
+    }
+
+    fun deleteEpisode(dramaId: String, episodeId: String) {
+        if (!requireAdmin()) return
+        viewModelScope.launch {
+            repository.deleteAdminEpisode(dramaId, episodeId)
+                .onSuccess { showToast("Episode deleted") }
+                .onFailure { showToast(it.localizedMessage ?: "Could not delete the episode") }
+        }
+    }
+
+    /**
+     * Last line of defence inside the app process. The console is already unreachable from the UI
+     * for a viewer; this stops a stale route or a race from writing content anyway.
+     */
+    private fun requireAdmin(): Boolean {
+        if (currentlyAdmin()) return true
+        _adminRoute.value = AdminRoute.None
+        showToast("Admin access is required for this action")
+        return false
     }
 
     private fun startPlaybackTicker() {

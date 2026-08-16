@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.Drama
+import com.example.ui.components.AdminAccessDialog
 import com.example.ui.components.AuthDialog
 import com.example.ui.components.CommentsBottomSheet
 import com.example.ui.components.EpisodePickerBottomSheet
@@ -55,6 +56,11 @@ import com.example.ui.screens.RewardsScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.theme.ReelBackgroundDark
 import com.example.ui.theme.ReelRedPrimary
+import com.example.data.admin.AdminStats
+import com.example.ui.screens.admin.AdminDashboardScreen
+import com.example.ui.screens.admin.AdminDramaEditorScreen
+import com.example.ui.screens.admin.AdminEpisodeEditorScreen
+import com.example.ui.viewmodel.AdminRoute
 import com.example.ui.viewmodel.MainTab
 import com.example.ui.viewmodel.ReelShortViewModel
 
@@ -111,6 +117,14 @@ fun ReelShortApp(viewModel: ReelShortViewModel) {
     val showAuthDialog by viewModel.showAuthDialog.collectAsStateWithLifecycle()
     val authErrorMessage by viewModel.authErrorMessage.collectAsStateWithLifecycle()
 
+    val isAdmin by viewModel.isAdmin.collectAsStateWithLifecycle()
+    val adminRoute by viewModel.adminRoute.collectAsStateWithLifecycle()
+    val adminDramas by viewModel.adminDramas.collectAsStateWithLifecycle()
+    val adminStats by viewModel.adminStats.collectAsStateWithLifecycle()
+    val showAdminAccessDialog by viewModel.showAdminAccessDialog.collectAsStateWithLifecycle()
+    val adminAccessError by viewModel.adminAccessError.collectAsStateWithLifecycle()
+    val isSavingAdminContent by viewModel.isSavingAdminContent.collectAsStateWithLifecycle()
+
     // Nav state for Drama Detail
     var detailDrama by remember { mutableStateOf<Drama?>(null) }
 
@@ -123,6 +137,20 @@ fun ReelShortApp(viewModel: ReelShortViewModel) {
 
     BackHandler(enabled = detailDrama != null) {
         detailDrama = null
+    }
+
+    // The console owns the whole window: no viewer chrome, and Back walks the admin routes.
+    if (adminRoute != AdminRoute.None) {
+        AdminConsole(
+            route = adminRoute,
+            dramas = adminDramas,
+            stats = adminStats,
+            adminName = userProfile?.displayName ?: currentUser?.displayName ?: "Admin",
+            adminEmail = userProfile?.email ?: currentUser?.email.orEmpty(),
+            isSaving = isSavingAdminContent,
+            viewModel = viewModel
+        )
+        return
     }
 
     Scaffold(
@@ -254,6 +282,8 @@ fun ReelShortApp(viewModel: ReelShortViewModel) {
                             unlockedList = unlockedList,
                             firebaseUser = currentUser,
                             userProfile = userProfile,
+                            isAdmin = isAdmin,
+                            onOpenAdminConsole = { viewModel.openAdminAccessDialog() },
                             onOpenAuth = { viewModel.openAuthDialog() },
                             onSignOut = { viewModel.signOut() },
                             onSelectDrama = { drama, epNum ->
@@ -325,11 +355,95 @@ fun ReelShortApp(viewModel: ReelShortViewModel) {
         errorMessage = authErrorMessage
     )
 
-    // 5. Global Loading Overlay
+    // 5. Admin Console Access Gate
+    AdminAccessDialog(
+        isOpen = showAdminAccessDialog,
+        isSignedInAdmin = isAdmin,
+        onDismiss = { viewModel.closeAdminAccessDialog() },
+        onEnterConsole = { viewModel.enterAdminConsole() },
+        onSubmitPasscode = { viewModel.submitAdminPasscode(it) },
+        errorMessage = adminAccessError
+    )
+
+    // 6. Global Loading Overlay
     LoadingOverlay(
         isLoading = isLoading,
         message = loadingMessage,
         subMessage = loadingSubMessage,
         onCancel = { viewModel.hideLoading() }
     )
+}
+
+/**
+ * Routes the admin console. Back always walks one step towards the dashboard and finally out of the
+ * console, so an admin can never get stranded on an editor with no way home.
+ */
+@Composable
+private fun AdminConsole(
+    route: AdminRoute,
+    dramas: List<Drama>,
+    stats: AdminStats,
+    adminName: String,
+    adminEmail: String,
+    isSaving: Boolean,
+    viewModel: ReelShortViewModel
+) {
+    BackHandler {
+        if (route is AdminRoute.Dashboard) {
+            viewModel.exitAdminConsole()
+        } else {
+            viewModel.openAdminDashboard()
+        }
+    }
+
+    when (route) {
+        AdminRoute.None -> Unit
+
+        AdminRoute.Dashboard -> {
+            AdminDashboardScreen(
+                adminName = adminName,
+                adminEmail = adminEmail,
+                stats = stats,
+                dramas = dramas,
+                onCreateFilm = { viewModel.openFilmEditor(null) },
+                onEditFilm = { viewModel.openFilmEditor(it) },
+                onManageEpisodes = { viewModel.openEpisodeManager(it.id) },
+                onTogglePublish = { viewModel.toggleFilmPublished(it.id, !it.isPublished) },
+                onDeleteFilm = { viewModel.deleteFilm(it.id) },
+                onExitConsole = { viewModel.exitAdminConsole() }
+            )
+        }
+
+        is AdminRoute.FilmEditor -> {
+            AdminDramaEditorScreen(
+                initialForm = route.form,
+                isSaving = isSaving,
+                onSave = { viewModel.saveFilm(it) },
+                onCancel = { viewModel.openAdminDashboard() }
+            )
+        }
+
+        is AdminRoute.EpisodeManager -> {
+            // Read the film out of the live list so a save is reflected without re-navigating.
+            val drama = dramas.find { it.id == route.dramaId }
+            if (drama == null) {
+                // Reached right after creating a film, before the database flow has emitted it.
+                // Waiting is correct here — bouncing to the dashboard would throw the admin out of
+                // the editor they just asked for.
+                LoadingOverlay(
+                    isLoading = true,
+                    message = "Opening episodes...",
+                    onCancel = { viewModel.openAdminDashboard() }
+                )
+            } else {
+                AdminEpisodeEditorScreen(
+                    drama = drama,
+                    isSaving = isSaving,
+                    onSaveEpisode = { viewModel.saveEpisode(it) },
+                    onDeleteEpisode = { viewModel.deleteEpisode(drama.id, it.id) },
+                    onBack = { viewModel.openAdminDashboard() }
+                )
+            }
+        }
+    }
 }
